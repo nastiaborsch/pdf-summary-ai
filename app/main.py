@@ -1,10 +1,26 @@
 import os
 import shutil
 from fastapi import FastAPI, UploadFile, File, HTTPException, Depends
+from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 from app.services import extract_text_from_pdf, generate_summary
 from app.models import SessionLocal, DocumentHistory
-app = FastAPI(title="PDF Summary AI")
+
+app = FastAPI(title="PDF Summary AI API")
+
+origins = [
+    "http://localhost:3000",
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+]
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 def get_db():
     db = SessionLocal()
@@ -25,7 +41,6 @@ async def summarize_pdf(file: UploadFile = File(...), db: Session = Depends(get_
             shutil.copyfileobj(file.file, buffer)
 
         text = await extract_text_from_pdf(temp_file_path)
-
         summary = await generate_summary(text)
 
         db_record = DocumentHistory(filename=file.filename, summary=summary)
