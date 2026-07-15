@@ -1,14 +1,23 @@
 import os
 import shutil
-from fastapi import FastAPI, UploadFile, File, HTTPException
+from fastapi import FastAPI, UploadFile, File, HTTPException, Depends
+from sqlalchemy.orm import Session
 from app.services import extract_text_from_pdf, generate_summary
+from app.models import SessionLocal, DocumentHistory
 app = FastAPI(title="PDF Summary AI")
 
+def get_db():
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
+
 @app.post("/api/summarize")
-async def summarize_pdf(file: UploadFile = File(...)):
+async def summarize_pdf(file: UploadFile = File(...), db: Session = Depends(get_db)):
     if not file.filename.endswith('.pdf'):
         raise HTTPException(status_code=400, detail="Only PDF files are supported.")
-    #тимчасово
+
     temp_file_path = f"temp_{file.filename}"
 
     try:
@@ -19,12 +28,23 @@ async def summarize_pdf(file: UploadFile = File(...)):
 
         summary = await generate_summary(text)
 
+        db_record = DocumentHistory(filename=file.filename, summary=summary)
+        db.add(db_record)
+        db.commit()
+        db.refresh(db_record)
+
         return {
-            "filename": file.filename,
-            "summary": summary
+            "id": db_record.id,
+            "filename": db_record.filename,
+            "summary": db_record.summary
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"An error occurred: {str(e)}")
     finally:
         if os.path.exists(temp_file_path):
             os.remove(temp_file_path)
+
+@app.get("/api/history")
+def get_history(db: Session = Depends(get_db)):
+    history = db.query(DocumentHistory).order_by(DocumentHistory.created_at.desc()).limit(5).all()
+    return history
